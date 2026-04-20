@@ -53,12 +53,10 @@ Get your free Groq API key at: https://console.groq.com
 npm start
 ```
 
-### 4. Open in Chrome
+### 4. Open in Browser
 ```
 http://localhost:3000
 ```
-
-> ⚠️ **Use Google Chrome only.** Speech Recognition and camera/mic APIs require Chrome.
 
 ---
 
