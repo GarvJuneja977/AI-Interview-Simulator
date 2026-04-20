@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeScreen — AI Interview Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js" onerror="window.faceApiLoadFailed=true"></script>
+</head>
+<body>
+
+<div id="screen-landing" class="screen active">
+  <div class="landing-bg">
+    <div class="grid-overlay"></div>
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+  </div>
+  <nav class="nav">
+    <div class="logo">Code<span>Screen</span></div>
+    <div class="nav-tag">AI Interview Simulator</div>
+  </nav>
+  <main class="landing-main">
+    <div class="landing-badge">Powered by Claude AI</div>
+    <h1 class="landing-title">Ace Your Next<br/><span class="accent">Technical Interview</span></h1>
+    <p class="landing-sub">Practice real coding questions under timed conditions. Get instant AI feedback on correctness, efficiency & code quality.</p>
+    <div class="landing-stats">
+      <div class="stat"><span class="stat-num">6+</span><span class="stat-label">Questions</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat"><span class="stat-num">3</span><span class="stat-label">Difficulty Levels</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat"><span class="stat-num">AI</span><span class="stat-label">Interviewer</span></div>
+    </div>
+    <button class="btn-primary" onclick="showScreen('screen-select')">Start Interview →</button>
+  </main>
+  <div class="terminal-preview">
+    <div class="terminal-bar"><span></span><span></span><span></span></div>
+    <div class="terminal-body">
+      <div class="t-line"><span class="t-prompt">$</span> <span class="t-cmd typing">codescreen --start</span></div>
+      <div class="t-line t-delay-1"><span class="t-green">✓</span> Loading question bank...</div>
+      <div class="t-line t-delay-2"><span class="t-green">✓</span> AI evaluator ready</div>
+      <div class="t-line t-delay-3"><span class="t-yellow">→</span> Select difficulty to begin</div>
+    </div>
+  </div>
+</div>
+
+<div id="screen-select" class="screen">
+  <nav class="nav nav-inner">
+    <div class="logo" onclick="showScreen('screen-landing')" style="cursor:pointer">Code<span>Screen</span></div>
+    <div class="nav-links"><span id="nav-score-display" class="nav-score hidden"></span></div>
+  </nav>
+  <div class="select-container">
+    <div class="select-header">
+      <h2>Choose Your Challenge</h2>
+      <p>Select difficulty and pick a question to begin</p>
+    </div>
+    <div class="difficulty-tabs">
+      <button class="diff-tab active" onclick="filterQuestions('all', this)">All</button>
+      <button class="diff-tab" onclick="filterQuestions('easy', this)">Easy</button>
+      <button class="diff-tab" onclick="filterQuestions('medium', this)">Medium</button>
+      <button class="diff-tab" onclick="filterQuestions('hard', this)">Hard</button>
+    </div>
+    <div id="questions-grid" class="questions-grid"></div>
+  </div>
+</div>
+
+
+
+<!-- ═══ SCREEN 2.5: PRE-INTERVIEW SETUP ═══ -->
+<div id="screen-setup" class="screen">
+  <nav class="nav nav-inner">
+    <div class="logo">Code<span>Screen</span></div>
+    <div class="nav-tag">Interview Setup</div>
+  </nav>
+  <div class="setup-container">
+    <div class="setup-header">
+      <h2>🎙️ Pre-Interview Checks</h2>
+      <p>Please allow camera and microphone access when prompted.</p>
+      <button onclick="runSetupChecks()" id="run-checks-btn" style="margin-top:0.75rem;padding:0.7rem 2rem;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.95rem;font-weight:700;box-shadow:0 0 20px rgba(124,58,237,0.4);">
+        🔍 Start Device Check
+      </button>
+    </div>
+
+    <div style="text-align:center;margin-bottom:1.5rem;">
+      <button onclick="runSetupChecks()" style="
+        padding:1rem 3rem;
+        background:#7c3aed;
+        color:#fff;
+        border:none;
+        border-radius:10px;
+        font-size:1.1rem;
+        font-weight:700;
+        cursor:pointer;
+        box-shadow:0 0 30px rgba(124,58,237,0.5);
+        font-family:inherit;
+      ">🔍 Check Camera & Microphone</button>
+      <p style="color:#6060a0;font-size:0.78rem;margin-top:0.5rem;font-family:monospace;">Click above — allow access when Chrome asks</p>
+    </div>
+
+    <div class="setup-preview">
+      <video id="setup-video" autoplay muted playsinline></video>
+      <div class="setup-preview-overlay" id="setup-preview-overlay">
+        <span style="font-size:2rem">📷</span>
+        <span>Camera preview will appear here</span>
+      </div>
+    </div>
+
+    <div class="setup-checks">
+      <div class="setup-check-item checking" id="check-camera">
+        <div class="check-icon">📷</div>
+        <div class="check-text">
+          <div class="check-title">Camera Access</div>
+          <div class="check-desc">Required for identity verification</div>
+        </div>
+        <div class="check-status checking" id="check-camera-status">Checking...</div>
+      </div>
+      <div class="setup-check-item checking" id="check-mic">
+        <div class="check-icon">🎙️</div>
+        <div class="check-text">
+          <div class="check-title">Microphone Access</div>
+          <div class="check-desc">Required for voice responses</div>
+        </div>
+        <div class="check-status checking" id="check-mic-status">Checking...</div>
+      </div>
+      <div class="setup-check-item checking" id="check-fullscreen">
+        <div class="check-icon">🖥️</div>
+        <div class="check-text">
+          <div class="check-title">Fullscreen Mode</div>
+          <div class="check-desc">Tab switching is monitored</div>
+        </div>
+        <div class="check-status checking" id="check-fullscreen-status">Required</div>
+      </div>
+    </div>
+
+    <div class="setup-rules">
+      <h4>⚠️ Interview Rules — Please Read</h4>
+      <ul>
+        <li>Do NOT switch tabs or windows during the interview</li>
+        <li>Do NOT leave the browser or minimize the window</li>
+        <li>Your face must remain visible in the camera at all times</li>
+        <li>Do NOT copy-paste code from external sources</li>
+        <li>3 violations will automatically terminate the interview</li>
+        <li>All activity is recorded and monitored by AI</li>
+      </ul>
+    </div>
+
+    <button class="setup-start-btn" id="setup-start-btn" onclick="beginInterview()" disabled>
+      ✅ All checks passed — Begin Interview
+    </button>
+  </div>
+</div>
+
+<!-- ═══ VIOLATION OVERLAY ═══ -->
+<div id="violation-overlay" class="violation-overlay hidden">
+  <div class="violation-card">
+    <div class="violation-icon">🚨</div>
+    <h3>Violation Detected</h3>
+    <div class="violation-count-badge" id="violation-count-badge">Warning 1 of 3</div>
+    <p id="violation-message">You switched tabs or left the interview window. This has been recorded.</p>
+    <div class="violation-actions">
+      <button class="btn-terminate" onclick="terminateInterview()">End Interview</button>
+      <button class="btn-continue-anyway" onclick="dismissViolation()">Continue (Warning Noted)</button>
+    </div>
+  </div>
+</div>
+
+
+
+<div id="screen-coding" class="screen">
+  <!-- Interview Top Bar -->
+  <div class="interview-topbar">
+    <div>
+      <div class="topbar-company">CodeScreen Interview</div>
+      <div class="topbar-role">Software Engineer — Technical Round</div>
+    </div>
+    <div class="topbar-right">
+      <div class="recording-badge"><span class="rec-dot"></span> REC</div>
+      <div class="proctor-bar" style="border:none;padding:0;background:transparent;">
+        <span class="proctor-dot"></span>
+        <span class="proctor-label">Proctored</span>
+        <span class="proctor-warnings" id="topbar-warnings"></span>
+      </div>
+    </div>
+  </div>
+  <div class="coding-layout">
+    <div class="problem-panel" id="problem-panel">
+      <div class="panel-header">
+        <div class="panel-title-row">
+          <button class="back-btn" onclick="leaveCoding()">← Back</button>
+          <div id="q-badge" class="q-diff-badge">Easy</div>
+        </div>
+        <h2 id="q-title">Question Title</h2>
+        <div id="q-category" class="q-category">Arrays</div>
+      </div>
+      <div class="panel-body">
+        <div id="q-description" class="q-description"></div>
+        <div class="examples-section"><h4>Examples</h4><div id="q-examples"></div></div>
+        <div class="constraints-section"><h4>Constraints</h4><ul id="q-constraints"></ul></div>
+        <button class="hint-btn" onclick="requestHint(1)" id="hint-btn-1">💡 Hint 1</button>
+        <button class="hint-btn" onclick="requestHint(2)" id="hint-btn-2" style="display:none">💡 Hint 2</button>
+        <button class="hint-btn" onclick="requestHint(3)" id="hint-btn-3" style="display:none">💡 Hint 3</button>
+        <div id="hint-display" class="hint-display hidden"></div>
+      </div>
+    </div>
+
+    <div class="editor-panel">
+      <div class="editor-header">
+        <div class="timer-display" id="timer-display">
+          <span class="timer-icon">⏱</span><span id="timer-text">15:00</span>
+        </div>
+        <div class="lang-selector">
+          <select id="lang-select" onchange="onLangChange()">
+            <option value="javascript">JavaScript</option>
+            <option value="python">Python</option>
+            <option value="java">Java</option>
+            <option value="cpp">C++</option>
+          </select>
+        </div>
+        <div class="editor-actions">
+          <button class="btn-secondary" onclick="resetCode()">Reset</button>
+          <button class="btn-submit" id="submit-btn" onclick="submitSolution()">Submit Solution</button>
+        </div>
+      </div>
+      <div class="code-editor-wrap">
+        <div class="line-numbers" id="line-numbers">1</div>
+        <textarea id="code-editor" class="code-editor" spellcheck="false" oninput="onCodeInput()" onkeydown="handleTabKey(event)" placeholder="// Write your solution here..."></textarea>
+      </div>
+      <div class="editor-footer">
+        <span id="char-count" class="char-count">0 chars</span>
+        <span class="hint-note">Use hints if stuck — they won't penalize your score</span>
+      </div>
+    </div>
+
+    <div class="interview-panel" id="interview-panel">
+      <div class="interviewer-card">
+        <div class="interviewer-avatar">
+          <div class="avatar-ring" id="avatar-ring"></div>
+          <div class="avatar-face">🤖</div>
+          <div class="speaking-bars" id="speaking-bars">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+        <div class="interviewer-info">
+          <div class="interviewer-name">Alex — AI Interviewer</div>
+          <div class="interviewer-status" id="interviewer-status">
+            <span class="status-dot green"></span> Ready
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-box" id="chat-box">
+        <div class="chat-msg ai-msg">
+          <div class="chat-bubble">👋 Hi! I'm <strong>Alex</strong>, your AI interviewer. Click <strong>"Ask Alex"</strong> anytime or type below. Good luck!</div>
+        </div>
+      </div>
+
+      <div class="candidate-video-wrap">
+        <video id="candidate-video" class="candidate-video" autoplay muted playsinline></video>
+        <div class="video-placeholder" id="video-placeholder">
+          <span class="video-placeholder-icon">👤</span>
+          <span>Camera is off</span>
+        </div>
+        <div class="mic-indicator" id="mic-indicator"><span class="mic-dot"></span> Live</div>
+        <div class="face-status detected" id="face-status">✓ Face detected</div>
+        <div class="video-label">You</div>
+      </div>
+
+      <div class="video-controls-row">
+        <button class="vid-ctrl-btn off" id="cam-btn" onclick="toggleCamera()">
+          <span id="cam-icon">📷</span><span id="cam-label">Cam Off</span>
+        </button>
+        <button class="vid-ctrl-btn off" id="mic-btn" onclick="toggleMic()">
+          <span id="mic-icon">🎙️</span><span id="mic-label">Mic Off</span>
+        </button>
+        <button class="vid-ctrl-btn ask-btn" onclick="askInterviewer()">💬 Ask Alex</button>
+      </div>
+
+      <div class="speak-section">
+        <textarea id="speak-input" class="speak-input" placeholder="Ask Alex something or think out loud..." rows="2" onkeydown="handleSpeakKey(event)"></textarea>
+        <button class="speak-send-btn" onclick="sendToInterviewer()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="screen-results" class="screen">
+  <nav class="nav nav-inner"><div class="logo">Code<span>Screen</span></div></nav>
+  <div class="results-container">
+    <div class="results-header">
+      <div id="verdict-badge" class="verdict-badge">Accepted</div>
+      <h2 id="result-title">Solution Evaluated</h2>
+      <p id="result-summary" class="result-summary"></p>
+    </div>
+    <div class="score-row">
+      <div class="score-circle-wrap">
+        <svg class="score-ring" viewBox="0 0 120 120">
+          <circle class="ring-bg" cx="60" cy="60" r="50"/>
+          <circle class="ring-fill" id="score-ring-fill" cx="60" cy="60" r="50" stroke-dasharray="314" stroke-dashoffset="314"/>
+        </svg>
+        <div class="score-center">
+          <span id="score-num" class="score-num">0</span>
+          <span class="score-label">/100</span>
+        </div>
+      </div>
+      <div class="sub-scores">
+        <div class="sub-score-item"><span class="sub-label">Correctness</span><div class="sub-bar-wrap"><div class="sub-bar" id="bar-correct"></div></div><span class="sub-val" id="val-correct">0%</span></div>
+        <div class="sub-score-item"><span class="sub-label">Efficiency</span><div class="sub-bar-wrap"><div class="sub-bar" id="bar-efficiency"></div></div><span class="sub-val" id="val-efficiency">0%</span></div>
+        <div class="sub-score-item"><span class="sub-label">Code Quality</span><div class="sub-bar-wrap"><div class="sub-bar" id="bar-quality"></div></div><span class="sub-val" id="val-quality">0%</span></div>
+      </div>
+      <div class="complexity-info">
+        <div class="complexity-item"><span class="c-label">Time Complexity</span><span class="c-val" id="time-complexity">O(n)</span></div>
+        <div class="complexity-item"><span class="c-label">Space Complexity</span><span class="c-val" id="space-complexity">O(1)</span></div>
+      </div>
+    </div>
+    <div class="feedback-grid">
+      <div class="feedback-card strengths-card"><h4>✅ Strengths</h4><ul id="strengths-list"></ul></div>
+      <div class="feedback-card improvements-card"><h4>🔧 Areas to Improve</h4><ul id="improvements-list"></ul></div>
+    </div>
+    <div class="optimal-section">
+      <h4>Optimal Approach</h4>
+      <p id="optimal-approach"></p>
+      <div class="optimal-code-wrap">
+        <div class="code-header">Optimal Solution <button onclick="toggleOptimal()" id="toggle-optimal-btn" class="toggle-code-btn">Show Code</button></div>
+        <pre id="optimal-code" class="optimal-code hidden"></pre>
+      </div>
+    </div>
+    <div class="result-actions">
+      <button class="btn-secondary" onclick="showScreen('screen-select')">Try Another Question</button>
+      <button class="btn-primary" onclick="retryQuestion()">Retry This Question</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="loading-card">
+    <div class="loading-spinner"></div>
+    <p id="loading-text">Evaluating your solution...</p>
+    <p class="loading-sub">Claude AI is reviewing your code</p>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
