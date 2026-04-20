@@ -1,3 +1,4 @@
+let cmEditor = null;
 const state = {
   questions: [], currentQuestion: null, timerInterval: null,
   timeRemaining: 0, timeTaken: 0, hintsUsed: 0, currentLang: 'javascript',
@@ -91,6 +92,11 @@ function showScreen(screenId) {
   }
 
   // Reset setup UI when setup screen shows — user must click button to run checks
+
+  if (screenId === 'screen-coding') {
+    setTimeout(() => initCodeMirror(), 100);
+  }
+
   if (screenId === 'screen-setup') {
     setCheck('camera', 'checking', 'Waiting...');
     setCheck('mic', 'checking', 'Waiting...');
@@ -394,7 +400,7 @@ function startAutoAnalysis() {
   // Every 60 seconds — analyze code if it changed
   state.codeAnalysisInterval = setInterval(async () => {
     if (!state.currentQuestion) return;
-    const currentCode = document.getElementById('code-editor').value.trim();
+    const currentCode = cmEditor ? cmEditor.getValue().trim() : document.getElementById('code-editor').value.trim();
     const now = Date.now();
 
     // Only analyze if 50+ seconds passed since last AI message
@@ -413,7 +419,7 @@ function startAutoAnalysis() {
     const now = Date.now();
     const timeSinceChange = now - state.lastCodeChangeTime;
     const timeSinceAI = now - state.lastAIMessageTime;
-    const currentCode = document.getElementById('code-editor').value.trim();
+    const currentCode = cmEditor ? cmEditor.getValue().trim() : document.getElementById('code-editor').value.trim();
 
     // Stuck = no code change for 2 minutes AND AI hasn't spoken for 90+ seconds
     if (timeSinceChange > 120000 && timeSinceAI > 90000 && currentCode.length > 0) {
@@ -422,9 +428,13 @@ function startAutoAnalysis() {
   }, 90000);
 
   // Track when code last changed
-  document.getElementById('code-editor').addEventListener('input', () => {
-    state.lastCodeChangeTime = Date.now();
-  });
+  if (cmEditor) {
+    cmEditor.on('change', () => { state.lastCodeChangeTime = Date.now(); });
+  } else {
+    document.getElementById('code-editor').addEventListener('input', () => {
+      state.lastCodeChangeTime = Date.now();
+    });
+  }
 
   // Explain the question right at the start
   setTimeout(async () => {
@@ -440,8 +450,10 @@ function stopAutoAnalysis() {
 }
 
 async function triggerCodeAnalysis(triggerType) {
+  if (triggerType === 'question_intro' && state.introPlayed) return;
+  if (triggerType === 'question_intro') state.introPlayed = true;
   if (state.interviewerTyping && triggerType !== 'question_intro') return;
-  const code = document.getElementById('code-editor').value;
+  const code = cmEditor ? cmEditor.getValue() : document.getElementById('code-editor').value;
 
   let typingId = null;
   if (triggerType === 'question_intro') {
@@ -472,15 +484,20 @@ async function triggerCodeAnalysis(triggerType) {
       // For intro: add message silently (speakIntroAndThenStart handles speech)
       // For others: addAIMessage handles speech via speakAlexMessage
       if (triggerType === 'question_intro') {
-        addAIMessage(data.reply, false); // false = don't auto-speak
+        // Build the chat bubble directly — bypasses addAIMessage's state.micOn speak trigger
+        const chatBox = document.getElementById('chat-box');
+        const div = document.createElement('div');
+        div.className = 'chat-msg ai-msg';
+        div.innerHTML = `<div class="chat-bubble">${escapeHtml(data.reply)}</div>`;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
         state.chatHistory.push({ role: 'assistant', content: data.reply });
         state.lastAIMessageTime = Date.now();
         speakIntroAndThenStart(data.reply);
       } else {
         state.chatHistory.push({ role: 'assistant', content: data.reply });
         state.lastAIMessageTime = Date.now();
-        addAIMessage(data.reply, false);
-        speakAlexMessage(data.reply);
+        addAIMessage(data.reply, true);
       }
     } else if (triggerType === 'question_intro') {
       // API failed — just start timer and mic anyway
@@ -503,46 +520,74 @@ async function triggerCodeAnalysis(triggerType) {
 
 
 function cleanForSpeech(text) {
-  return text
-    // Replace array/bracket notation
-    .replace(/\[([^\]]+)\]/g, (_, inner) => inner.replace(/,/g, ','))
-    .replace(/\[/g, '').replace(/\]/g, '')
-    // Replace math/comparison operators
-    .replace(/\s*<=\s*/g, ' is at most ')
-    .replace(/\s*>=\s*/g, ' is at least ')
-    .replace(/\s*=\s*/g, ' equals ')
-    .replace(/\s*!=\s*/g, ' not equal to ')
-    // Replace code-like symbols
-    .replace(/`/g, '')
-    .replace(/\*/g, '')
-    .replace(/\_/g, ' ')
-    .replace(/#/g, '')
-    .replace(/\{/g, '').replace(/\}/g, '')
-    // Replace superscripts like 10⁵
-    .replace(/10⁴/g, '10 to the power of 4')
-    .replace(/10⁵/g, '10 to the power of 5')
-    .replace(/10⁶/g, '10 to the power of 6')
-    .replace(/10⁹/g, '10 to the power of 9')
-    .replace(/²/g, ' squared')
-    .replace(/³/g, ' cubed')
-    // Replace arrows
-    .replace(/->/g, ' gives ')
-    .replace(/→/g, ' gives ')
-    // Replace multiple spaces/newlines
-    .replace(/\n+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  // Step 1: handle bracket notation explicitly before anything else
+  // double index: grid[i][j] → grid at i j
+  text = text.replace(/([a-zA-Z_]\w*)\[([a-zA-Z0-9_]+)\]\[([a-zA-Z0-9_]+)\]/g, '$1 at $2 $3');
+  // single index: s[i] → s at index i, nums[0] → nums at index 0
+  text = text.replace(/([a-zA-Z_]\w*)\[([a-zA-Z0-9_]+)\]/g, '$1 at index $2');
+  // any remaining brackets: [1,2,3] → 1,2,3
+  text = text.replace(/\[([^\]]+)\]/g, '$1');
+  text = text.replace(/\[/g, '').replace(/\]/g, '');
+
+  // Step 2: property access dots — s.length → s length
+  text = text.replace(/([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)/g, '$1 $2');
+
+  // Step 3: math/comparison operators
+  text = text.replace(/\s*<=\s*/g, ' is at most ');
+  text = text.replace(/\s*>=\s*/g, ' is at least ');
+  text = text.replace(/\s*!=\s*/g, ' not equal to ');
+  text = text.replace(/\s*==\s*/g, ' equals ');
+  text = text.replace(/\s*=\s*/g, ' equals ');
+
+  // Step 4: code symbols
+  text = text.replace(/`/g, '');
+  text = text.replace(/\*/g, '');
+  text = text.replace(/_/g, ' ');
+  text = text.replace(/#/g, '');
+  text = text.replace(/\{/g, '').replace(/\}/g, '');
+
+  // Step 5: function call parens
+  text = text.replace(/([a-zA-Z_]\w*)\(\)/g, '$1');
+
+  // Step 6: complexity notation
+  text = text.replace(/O\(([^)]+)\)/g, (_, inner) => 'O of ' + inner.replace(/\//g, ' over '));
+  text = text.replace(/([a-zA-Z0-9]+)\/([a-zA-Z0-9]+)/g, '$1 over $2');
+
+  // Step 7: common variable names
+  text = text.replace(/\bstrs\b/g, 'strings');
+  text = text.replace(/\bwordDict\b/g, 'word dictionary');
+  text = text.replace(/\bworddict\b/gi, 'word dictionary');
+
+  // Step 8: superscripts
+  text = text.replace(/10⁴/g, '10 to the power of 4');
+  text = text.replace(/10⁵/g, '10 to the power of 5');
+  text = text.replace(/10⁶/g, '10 to the power of 6');
+  text = text.replace(/10⁹/g, '10 to the power of 9');
+  text = text.replace(/²/g, ' squared');
+  text = text.replace(/³/g, ' cubed');
+
+  // Step 9: arrows
+  text = text.replace(/->/g, ' gives ');
+  text = text.replace(/→/g, ' gives ');
+
+  // Step 10: clean up whitespace
+  text = text.replace(/\n+/g, ' ');
+  text = text.replace(/\s{2,}/g, ' ');
+
+  return text.trim();
 }
 
 
 function splitIntoChunks(text) {
-  // Split at sentence endings — period, exclamation, question mark
-  // Also split long sentences at commas if over 100 chars
+  // Replace property access dots temporarily so they don't get split as sentence endings
+  // e.g. s.length → s_DOT_length, nums.length → nums_DOT_length
+  text = text.replace(/(\w)\.(\w)/g, '$1_DOT_$2');
+
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
   const chunks = [];
 
   sentences.forEach(sentence => {
-    sentence = sentence.trim();
+    sentence = sentence.trim().replace(/_DOT_/g, ' dot ');
     if (!sentence) return;
 
     if (sentence.length <= 120) {
@@ -598,6 +643,67 @@ function speakChunks(chunks, onComplete) {
 }
 
 
+function initCodeMirror() {
+  if (cmEditor) return; // already initialized
+
+  const textarea = document.getElementById('code-editor');
+
+  cmEditor = CodeMirror.fromTextArea(textarea, {
+    mode: 'javascript',
+    theme: 'dracula',
+    lineNumbers: true,
+    autoCloseBrackets: true,
+    matchBrackets: true,
+    styleActiveLine: true,
+    indentUnit: 2,
+    tabSize: 2,
+    indentWithTabs: false,
+    lineWrapping: false,
+    extraKeys: {
+      'Ctrl-Space': 'autocomplete',
+      'Tab': (cm) => {
+        if (cm.somethingSelected()) {
+          cm.indentSelection('add');
+        } else {
+          cm.replaceSelection('  ', 'end');
+        }
+      },
+      'Ctrl-/': (cm) => cm.toggleComment(),
+    },
+    hintOptions: {
+      completeSingle: false,
+      alignWithWord: true,
+    }
+  });
+
+  // Auto-trigger autocomplete on word characters
+  cmEditor.on('inputRead', (cm, change) => {
+    if (change.text[0] && /[\w.]/.test(change.text[0])) {
+      CodeMirror.commands.autocomplete(cm, null, { completeSingle: false });
+    }
+  });
+
+  // Keep char count updated
+  cmEditor.on('change', () => {
+    updateCharCount();
+    state.lastCodeChangeTime = Date.now();
+  });
+
+  // Set initial size to fill container
+  cmEditor.setSize('100%', '100%');
+}
+
+function getLangMode(lang) {
+  switch (lang) {
+    case 'javascript': return 'javascript';
+    case 'python':     return 'python';
+    case 'java':       return { name: 'clike', mime: 'text/x-java' };
+    case 'cpp':        return { name: 'clike', mime: 'text/x-c++src' };
+    default:           return 'javascript';
+  }
+}
+
+
 function speakIntroAndThenStart(text) {
   if (!window.speechSynthesis) {
     startTimer();
@@ -610,46 +716,26 @@ function speakIntroAndThenStart(text) {
   state.alexSpeaking = false;
   setInterviewerStatus('Explaining...', 'yellow');
 
+  // Kill any existing recognition before Alex speaks
   if (state.recognition) {
+    state.recognition.onend = null; // prevent auto-restart during intro
     try { state.recognition.abort(); } catch(e) {}
     state.recognition = null;
   }
 
-  speakNow(text, () => {
-    // Intro fully done
+  speakNow(text, async () => {
+    // Intro fully done — reset speech state
     state.alexSpeaking = false;
     setSpeakingAnimation(false);
     setInterviewerStatus('Listening...', 'green');
+
+    // Start the timer now that Alex is done talking
     startTimer();
 
-    // Wait then start mic
+    // Small buffer then start mic fresh — no second speakNow, no duplicate prompt
     setTimeout(async () => {
       await startMicAndListen();
-
-      // After mic is running, speak follow-up prompt
-      setTimeout(() => {
-        const prompt = "Go ahead — what's your approach?";
-        // Add to chat but don't auto-speak via addAIMessage
-        const chatBox = document.getElementById('chat-box');
-        const div = document.createElement('div');
-        div.className = 'chat-msg ai-msg';
-        div.innerHTML = `<div class="chat-bubble">${escapeHtml(prompt)}</div>`;
-        chatBox.appendChild(div);
-        chatBox.scrollTop = chatBox.scrollHeight;
-        state.chatHistory.push({ role: 'assistant', content: prompt });
-
-        // Speak it directly via speakNow so mic restarts after
-        speakNow(prompt, () => {
-          state.alexSpeaking = false;
-          setSpeakingAnimation(false);
-          setInterviewerStatus('Listening...', 'green');
-          // Restart mic after prompt finishes
-        setTimeout(() => {
-          if (state.micOn) startSpeechRecognition();
-        }, 50);
-        });
-      }, 1000);
-    }, 600);
+    }, 400);
   });
 }
 
@@ -677,8 +763,13 @@ async function startMicAndListen() {
   }
 
   state.alexSpeaking = false;
+  // Null out any stale recognition instance so startSpeechRecognition starts clean
+  if (state.recognition) {
+    try { state.recognition.abort(); } catch(e) {}
+    state.recognition = null;
+  }
   console.log('🎧 Starting speech recognition...');
-  setTimeout(() => startSpeechRecognition(), 100);
+  setTimeout(() => startSpeechRecognition(), 300);
 }
 
 
@@ -821,7 +912,7 @@ function triggerViolation(type, message) {
   } else {
     showViolationOverlay(type, message, false);
   }
-  addAIMessage(`🚨 Violation detected: ${type}. Warning ${state.violations} of ${state.maxViolations}.`);
+  // addAIMessage(`🚨 Violation detected: ${type}. Warning ${state.violations} of ${state.maxViolations}.`);
 }
 
 function showViolationOverlay(type, message, isTerminal) {
@@ -929,6 +1020,7 @@ function startQuestion(question) {
   state.timeTaken = 0;
   state.chatHistory = [];
   state.hasShownListeningMsg = false;
+  state.introPlayed = false;
 
   document.getElementById('q-title').textContent = question.title;
   const badge = document.getElementById('q-badge');
@@ -953,9 +1045,14 @@ function startQuestion(question) {
 
   const lang = document.getElementById('lang-select').value;
   state.currentLang = lang;
-  const editor = document.getElementById('code-editor');
-  editor.value = getStarterCode(question.id, lang);
-  updateLineNumbers(); updateCharCount();
+  const code = getStarterCode(question.id, lang);
+  if (cmEditor) {
+    cmEditor.setValue(code);
+    cmEditor.setOption('mode', getLangMode(lang));
+  } else {
+    document.getElementById('code-editor').value = code;
+  }
+  updateCharCount();
 
   document.getElementById('chat-box').innerHTML = `
     <div class="chat-msg ai-msg">
@@ -1034,25 +1131,23 @@ function handleTimeUp() {
   }, 500);
 }
 
-function onCodeInput() { updateLineNumbers(); updateCharCount(); }
+function onCodeInput() {
+  updateCharCount();
+}
 
 function updateLineNumbers() {
-  const lines = document.getElementById('code-editor').value.split('\n').length;
-  document.getElementById('line-numbers').innerHTML = Array.from({length: lines}, (_, i) => i+1).join('<br>');
+  //const lines = document.getElementById('code-editor').value.split('\n').length;
+  //document.getElementById('line-numbers').innerHTML = Array.from({length: lines}, (_, i) => i+1).join('<br>');
+  // CodeMirror handles line numbers natively
 }
 
 function updateCharCount() {
-  document.getElementById('char-count').textContent = `${document.getElementById('code-editor').value.length} chars`;
+  const val = cmEditor ? cmEditor.getValue() : document.getElementById('code-editor').value;
+  document.getElementById('char-count').textContent = `${val.length} chars`;
 }
 
 function handleTabKey(e) {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const el = e.target, start = el.selectionStart, end = el.selectionEnd;
-    el.value = el.value.substring(0, start) + '  ' + el.value.substring(end);
-    el.selectionStart = el.selectionEnd = start + 2;
-    updateLineNumbers();
-  }
+  // Handled by CodeMirror extraKeys
 }
 
 function resetCode() {
@@ -1060,8 +1155,10 @@ function resetCode() {
   const wasProctoring = state.proctoringActive;
   state.proctoringActive = false;
   if (confirm('Reset code to starter template?')) {
-    document.getElementById('code-editor').value = getStarterCode(state.currentQuestion.id, document.getElementById('lang-select').value);
-    updateLineNumbers(); updateCharCount();
+    const code = getStarterCode(state.currentQuestion.id, document.getElementById('lang-select').value);
+    if (cmEditor) cmEditor.setValue(code);
+    else document.getElementById('code-editor').value = code;
+    updateCharCount();
   }
   setTimeout(() => {
     state.proctoringActive = wasProctoring;
@@ -1214,36 +1311,42 @@ function getStarterCode(questionId, lang) {
 function onLangChange() {
   if (!state.currentQuestion) return;
   const lang = document.getElementById('lang-select').value;
-  const editor = document.getElementById('code-editor');
-  const currentCode = editor.value.trim();
+  const currentCode = cmEditor ? cmEditor.getValue().trim() : document.getElementById('code-editor').value.trim();
   const templates = starterTemplates[state.currentQuestion.id] || {};
   const isStillStarter = Object.values(templates).some(t => currentCode === t.trim()) || currentCode === '';
 
-  // Temporarily pause fullscreen/blur proctoring to avoid false violation
-  // when confirm() dialog or select dropdown causes window blur
   const wasProctoring = state.proctoringActive;
   state.proctoringActive = false;
 
   if (isStillStarter) {
-    editor.value = getStarterCode(state.currentQuestion.id, lang);
-    updateLineNumbers(); updateCharCount();
+    const code = getStarterCode(state.currentQuestion.id, lang);
+    if (cmEditor) {
+      cmEditor.setValue(code);
+      cmEditor.setOption('mode', getLangMode(lang));
+    } else {
+      document.getElementById('code-editor').value = code;
+    }
+    updateCharCount();
   } else {
     if (confirm(`Switch to ${lang.toUpperCase()} template? Your code will be replaced.`)) {
-      editor.value = getStarterCode(state.currentQuestion.id, lang);
-      updateLineNumbers(); updateCharCount();
+      const code = getStarterCode(state.currentQuestion.id, lang);
+      if (cmEditor) {
+        cmEditor.setValue(code);
+        cmEditor.setOption('mode', getLangMode(lang));
+      } else {
+        document.getElementById('code-editor').value = code;
+      }
+      updateCharCount();
     } else {
       document.getElementById('lang-select').value = state.currentLang;
-      // Re-enable proctoring before returning
       setTimeout(() => { state.proctoringActive = wasProctoring; }, 500);
       return;
     }
   }
   state.currentLang = lang;
 
-  // Re-enable proctoring after a short delay so any blur/focus events settle
   setTimeout(() => {
     state.proctoringActive = wasProctoring;
-    // Re-enter fullscreen if it was exited during the switch
     if (wasProctoring && !document.fullscreenElement) {
       try { document.documentElement.requestFullscreen(); } catch(e) {}
     }
@@ -1535,7 +1638,7 @@ async function sendMessage(userText, isAuto) {
   setSpeakingAnimation(true);
   const typingId = addTypingIndicator();
   try {
-    const code = document.getElementById('code-editor').value;
+    const code = cmEditor ? cmEditor.getValue() : document.getElementById('code-editor').value;
     const res = await fetch('/api/interviewer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1577,7 +1680,7 @@ function addAIMessage(text, speak = false) {
   chatBox.appendChild(div);
   chatBox.scrollTop = chatBox.scrollHeight;
 
-  if (speak || state.micOn || state.pendingSpeak) {
+  if (speak) {
     state.pendingSpeak = false;
     setTimeout(() => speakAlexMessage(text), 50);
   }
@@ -1663,7 +1766,19 @@ function _speakTextNow(text, onComplete) {
       if (!cancelled) {
         state.alexSpeaking = false;
         setSpeakingAnimation(false);
+        // Kill the stale recognition instance so startSpeechRecognition starts clean
+        if (state.recognition) {
+          state.recognition.onend = null;
+          state.recognition.onresult = null;
+          state.recognition.onerror = null;
+          try { state.recognition.abort(); } catch(e) {}
+          state.recognition = null;
+        }
         if (onComplete) onComplete();
+        // Restart mic after Alex finishes speaking
+        if (state.micOn) {
+          setTimeout(() => startSpeechRecognition(), 300);
+        }
       }
       return;
     }
@@ -1704,22 +1819,19 @@ function speakNow(text, onComplete) {
   // Cancel everything and speak immediately (used for intro)
   clearSpeechQueue();
   window.speechSynthesis.cancel();
-  setTimeout(() => _speakTextNow(text, onComplete), 200);
+  // Longer delay on intro to let any in-flight utterances fully cancel
+  // before starting — prevents the chunk loop from replaying
+  setTimeout(() => {
+    window.speechSynthesis.cancel(); // second cancel to be sure
+    _speakTextNow(text, onComplete);
+  }, 500);
 }
 
 function speakAlexMessage(text) {
   if (!window.speechSynthesis) return;
 
   function doQueue() {
-    queueSpeech(text, () => {
-      if (state.micOn && !state.alexSpeaking) {
-        setTimeout(() => {
-          if (state.micOn && !state.alexSpeaking && !state.recognition) {
-            startSpeechRecognition();
-          }
-        }, 500);
-      }
-    });
+    queueSpeech(text, null); // SR restart is handled inside _speakTextNow's onComplete
   }
 
   if (window.speechSynthesis.getVoices().length === 0) {
@@ -1767,7 +1879,7 @@ async function requestHint(level) {
   const hintDisplay = document.getElementById('hint-display');
   btn.textContent = '⏳ Getting hint...'; btn.classList.add('used'); btn.disabled = true;
   try {
-    const code = document.getElementById('code-editor').value;
+    const code = cmEditor ? cmEditor.getValue() : document.getElementById('code-editor').value;
     const res = await fetch('/api/hint', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: state.currentQuestion, code, hintLevel: level })
@@ -1787,9 +1899,8 @@ async function requestHint(level) {
 }
 
 async function submitSolution() {
-  const code = document.getElementById('code-editor').value.trim();
+  const code = (cmEditor ? cmEditor.getValue() : document.getElementById('code-editor').value).trim();
   const language = document.getElementById('lang-select').value;
-  // Save code and language so retry can restore them
   state.lastSubmittedCode = code;
   state.lastSubmittedLang = language;
   const currentStarter = getStarterCode(state.currentQuestion.id, language).trim();
@@ -1859,10 +1970,15 @@ function retryQuestion() {
   // Restore last submitted code and language after startQuestion resets everything
   setTimeout(() => {
     if (state.lastSubmittedCode) {
-      document.getElementById('lang-select').value = state.lastSubmittedLang || 'javascript';
-      state.currentLang = state.lastSubmittedLang || 'javascript';
-      document.getElementById('code-editor').value = state.lastSubmittedCode;
-      updateLineNumbers();
+      const lang = state.lastSubmittedLang || 'javascript';
+      document.getElementById('lang-select').value = lang;
+      state.currentLang = lang;
+      if (cmEditor) {
+        cmEditor.setValue(state.lastSubmittedCode);
+        cmEditor.setOption('mode', getLangMode(lang));
+      } else {
+        document.getElementById('code-editor').value = state.lastSubmittedCode;
+      }
       updateCharCount();
     }
   }, 100);
