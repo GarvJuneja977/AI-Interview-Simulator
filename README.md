@@ -8,7 +8,7 @@ A local AI-powered technical interview simulator with a real-time interviewer (A
 
 | Layer | Technology |
 |---|---|
-| Backend | Node.js + Express |
+| Backend | Node.js |
 | AI | Groq SDK (`llama-3.3-70b-versatile`) |
 | Frontend | Vanilla HTML/CSS/JavaScript |
 | Face Detection | face-api.js (TinyFaceDetector) |
